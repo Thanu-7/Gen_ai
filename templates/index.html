@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MindMate 🤖</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #1e1e1e;
+      --bot-bg: #2a2a2a;
+      --user-bg: #2a2a2a;
+      --border: #2a2a2a;
+      --text: #f3f4f6;
+      --radius: 12px;
+      --input-bg: #2a2a2a;
+      --header-bg: #2a2a2a;
+      --accent: #00adb5;
+      --danger: #ff4e4e;
+    }
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      padding: 16px 24px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header .icon { font-size: 22px; }
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      padding: 24px;
+      flex: 1;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .panel {
+      background: var(--bot-bg);
+      border-radius: var(--radius);
+      padding: 24px;
+      min-width: 320px;
+      max-width: 400px;
+      flex: 1 1 340px;
+      box-shadow: 0 2px 12px #0002;
+      margin-bottom: 24px;
+    }
+    .panel h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      color: var(--accent);
+    }
+    .panel label { font-size: 15px; }
+    .panel input, .panel textarea, .panel select {
+      width: 100%;
+      margin: 8px 0 16px 0;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      resize: vertical;
+    }
+    .panel button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 15px;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    .panel button:hover { background: #008b91; }
+    .danger { color: var(--danger); }
+    .suggestion-list { margin: 0 0 10px 0; padding: 0 0 0 18px; }
+    .suggestion-list li { margin-bottom: 4px; }
+    .quote { font-style: italic; color: #b5eaea; margin-bottom: 8px; }
+    .escalate-box {
+      background: #2a2a2a;
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      padding: 12px;
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    /* Chat styles */
+    #chat { max-height: 340px; overflow-y: auto; padding: 8px 0; display: flex; flex-direction: column; }
+    .message {
+      max-width: 70%;
+      padding: 12px 16px;
+      margin: 8px 0;
+      border-radius: var(--radius);
+      line-height: 1.5;
+      font-size: 15px;
+      animation: fadeIn 0.25s ease-in-out;
+    }
+    .bot { background: var(--bot-bg); border: 1px solid var(--border); align-self: flex-start; }
+    .user { background: var(--user-bg); color: white; align-self: flex-end; }
+    .typing { font-style: italic; color: #9ca3af; font-size: 14px; margin: 8px 0; align-self: flex-start; }
+    .chat-input {
+      display: flex; padding: 12px 0 0 0;
+    }
+    #userInput {
+      flex: 1; padding: 12px 16px; border-radius: var(--radius); border: 1px solid var(--border);
+      outline: none; font-size: 15px; background: var(--bg); color: var(--text);
+    }
+    #userInput:focus { border-color: #2a2a2a; }
+    button.send, button.voice {
+      margin-left: 10px; padding: 12px 20px; border-radius: var(--radius);
+      background: #1d1d1d; color: white; border: none; cursor: pointer; font-size: 15px;
+    }
+    button.send:hover, button.voice:hover { background: #000000; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+    #chat::-webkit-scrollbar { width: 6px; }
+    #chat::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 6px; }
+    /* Responsive */
+    @media (max-width: 900px) {
+      .container { flex-direction: column; align-items: stretch; }
+      .panel { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="icon">🤖</span>
+    <span>MindMate</span>
+  </div>
+  <div class="container">
+    <!-- Chatbot Panel -->
+    <div class="panel" style="max-width:420px;">
+      <h2>Gemini Chatbot</h2>
+      <div id="chat"></div>
+      <div class="chat-input">
+        <input type="text" id="userInput" placeholder="Message..." autofocus>
+        <button class="send" onclick="sendMessage()">Send</button>
+        <button class="voice" id="voiceBtn">🎤</button>
+      </div>
+    </div>
+    <!-- Journal Panel -->
+    <div class="panel">
+      <h2>Daily Journal</h2>
+      <label for="journalText">Write your thoughts:</label>
+      <textarea id="journalText" rows="4" placeholder="How are you feeling today?"></textarea>
+      <button onclick="analyzeJournal()">Analyze Mood</button>
+      <button onclick="saveJournal()">Save Entry</button>
+      <div id="journalMood"></div>
+      <div id="escalateBox" class="escalate-box" style="display:none;">
+        Your mood seems critically low. <br>
+        <b>Consider reaching out to a psychologist or helpline.</b>
+      </div>
+    </div>
+    <!-- Suggestions Panel -->
+    <div class="panel">
+      <h2>Personalized Suggestions</h2>
+      <label for="moodSelect">Select mood:</label>
+      <select id="moodSelect">
+        <option value="happy">Happy</option>
+        <option value="sad">Sad</option>
+        <option value="stressed">Stressed</option>
+        <option value="depressed">Depressed</option>
+      </select>
+      <button onclick="getSuggestions()">Get Suggestions</button>
+      <div class="quote" id="quote"></div>
+      <ul class="suggestion-list" id="suggestions"></ul>
+    </div>
+    <!-- Login Panel -->
+    <div class="panel">
+      <h2>Login</h2>
+      <div id="loginForm">
+        <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+        <button onclick="loginWithEmailUI()">Login</button>
+        <button onclick="registerWithEmailUI()">Register</button>
+        <div id="loginError" class="danger"></div>
+      </div>
+      <hr>
+      <button onclick="loginWithGoogle()">Sign in with Google</button>
+      <button onclick="logout()" style="display:none;" id="logoutBtn">Logout</button>
+      <span id="userEmail"></span>
+    </div>
+  </div>
+  <!-- Firebase App (the core Firebase SDK) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<!-- Firebase Auth SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script>
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyAdZzm_m9rSB0sNOHAhe-Z57zKLSkvmDwY",
+    authDomain: "mindmate-d294b.firebaseapp.com",
+    projectId: "mindmate-d294b",
+    storageBucket: "mindmate-d294b.appspot.com",
+    messagingSenderId: "79383956961",
+    appId: "1:79383956961:web:da7dd36151520454ab96a0",
+    measurementId: "G-MSSJ3LWR5N"
+  };
+  firebase.initializeApp(firebaseConfig);
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  // User ID for session
+  let user_id = localStorage.getItem("user_id");
+  if (!user_id) {
+    user_id = crypto.randomUUID();
+    localStorage.setItem("user_id", user_id);
+  }
+
+  // ------------- Chatbot -------------
+  const chat = document.getElementById("chat");
+  async function sendMessage(){
+    const input = document.getElementById("userInput");
+    const message = input.value.trim();
+    if(!message) return;
+    chat.innerHTML += `<div class="message user">${message}</div>`;
+    input.value = '';
+    const typingIndicator = document.createElement("div");
+    typingIndicator.className = "typing";
+    typingIndicator.innerText = "MindMate is typing...";
+    chat.appendChild(typingIndicator);
+    chat.scrollTop = chat.scrollHeight;
+    try {
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message, user_id})
+      });
+      const data = await response.json();
+      typingIndicator.remove();
+      const botMessage = document.createElement("div");
+      botMessage.className = "message bot";
+      chat.appendChild(botMessage);
+      let i = 0;
+      const text = data.reply;
+      const typing = setInterval(() => {
+        botMessage.innerText = text.slice(0, i++);
+        chat.scrollTop = chat.scrollHeight;
+        if(i > text.length) clearInterval(typing);
+      }, 15);
+    } catch (err) {
+      typingIndicator.remove();
+      chat.innerHTML += `<div class="message bot">⚠️ Error connecting to server.</div>`;
+    }
+  }
+  document.getElementById("userInput").addEventListener("keypress", e => {
+    if(e.key === "Enter") sendMessage();
+  });
+  // Voice input for chatbot
+  const voiceBtn = document.getElementById("voiceBtn");
+  voiceBtn.addEventListener("click", () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert("Your browser does not support voice input.");
+      return;
+    }
+    const recognition = new webkitSpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.start();
+    let typingIndicator = document.createElement("div");
+    typingIndicator.className = "typing";
+    typingIndicator.id = "voiceTyping";
+    typingIndicator.innerText = "🎙️ Recording your voice...";
+    chat.appendChild(typingIndicator);
+    chat.scrollTop = chat.scrollHeight;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      document.getElementById("userInput").value = transcript;
+      typingIndicator.innerText = "💬 Processing your message...";
+      sendMessage();
+      setTimeout(() => {
+        const indicator = document.getElementById("voiceTyping");
+        if (indicator) indicator.remove();
+      }, 500);
+    };
+    recognition.onerror = (event) => {
+      const indicator = document.getElementById("voiceTyping");
+      if (indicator) indicator.remove();
+      alert("Voice recognition error: " + event.error);
+    };
+    recognition.onend = () => {
+      const indicator = document.getElementById("voiceTyping");
+      if (indicator && indicator.innerText === "🎙️ Recording your voice...") {
+        indicator.remove();
+      }
+    };
+  });
+
+  // ------------- Journal -------------
+  window.analyzeJournal = async function() {
+    const text = document.getElementById("journalText").value.trim();
+    if (!text) return;
+    document.getElementById("journalMood").innerText = "Analyzing...";
+    document.getElementById("escalateBox").style.display = "none";
+    const res = await fetch("/analyze_journal", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({journal: text})
+    });
+    const data = await res.json();
+    document.getElementById("journalMood").innerHTML = `Mood: <b>${data.mood}</b> (Score: ${data.score})`;
+    if (data.escalate) {
+      document.getElementById("escalateBox").style.display = "block";
+    }
+  }
+  window.saveJournal = async function() {
+    const text = document.getElementById("journalText").value.trim();
+    if (!text) return;
+    const res = await fetch("/add_journal", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({user_id, journal: text})
+    });
+    const data = await res.json();
+    alert(data.message || "Saved!");
+  }
+
+  // ------------- Suggestions -------------
+  window.getSuggestions = async function() {
+    const mood = document.getElementById("moodSelect").value;
+    document.getElementById("suggestions").innerHTML = "";
+    document.getElementById("quote").innerText = "Loading...";
+    const res = await fetch("/recommend", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mood})
+    });
+    const data = await res.json();
+    document.getElementById("quote").innerText = data.quote ? `“${data.quote}”` : "";
+    document.getElementById("suggestions").innerHTML = data.suggestions.map(s => `<li>${s}</li>`).join("");
+  }
+
+  // ------------- Login -------------
+  window.loginWithGoogle = async function() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    try {
+      const result = await firebase.auth().signInWithPopup(provider);
+      const user = result.user;
+      const idToken = await user.getIdToken();
+      localStorage.setItem("idToken", idToken);
+      document.getElementById("userEmail").innerText = user.email;
+      document.getElementById("logoutBtn").style.display = "inline";
+      alert("Signed in as: " + user.email);
+    } catch (err) {
+      alert("Login failed: " + err.message);
+    }
+  }
+  function logout() {
+    firebase.auth().signOut();
+    localStorage.removeItem("idToken");
+    document.getElementById("userEmail").innerText = "";
+    document.getElementById("logoutBtn").style.display = "none";
+    alert("Signed out.");
+  }
+  // Optional: Show user info if already signed in
+  firebase.auth().onAuthStateChanged(async function(user) {
+    if (user) {
+      document.getElementById("userEmail").innerText = user.email;
+      document.getElementById("logoutBtn").style.display = "inline";
+      const idToken = await user.getIdToken();
+      localStorage.setItem("idToken", idToken);
+    }
+  });
+
+  async function loginWithEmail(email, password) {
+    try {
+      const result = await firebase.auth().signInWithEmailAndPassword(email, password);
+      const user = result.user;
+      const idToken = await user.getIdToken();
+      localStorage.setItem("idToken", idToken);
+      alert("Signed in as: " + user.email);
+    } catch (err) {
+      alert("Login failed: " + err.message);
+    }
+  }
+
+  window.loginWithEmailUI = async function() {
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    document.getElementById("loginError").innerText = "";
+    try {
+      const result = await firebase.auth().signInWithEmailAndPassword(email, password);
+      const user = result.user;
+      const idToken = await user.getIdToken();
+      localStorage.setItem("idToken", idToken);
+      document.getElementById("userEmail").innerText = user.email;
+      document.getElementById("logoutBtn").style.display = "inline";
+      alert("Signed in as: " + user.email);
+    } catch (err) {
+      document.getElementById("loginError").innerText = err.message;
+    }
+  }
+
+  window.registerWithEmailUI = async function() {
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    document.getElementById("loginError").innerText = "";
+    try {
+      const result = await firebase.auth().createUserWithEmailAndPassword(email, password);
+      const user = result.user;
+      const idToken = await user.getIdToken();
+      localStorage.setItem("idToken", idToken);
+      document.getElementById("userEmail").innerText = user.email;
+      document.getElementById("logoutBtn").style.display = "inline";
+      alert("Registered and signed in as: " + user.email);
+    } catch (err) {
+      document.getElementById("loginError").innerText = err.message;
+    }
+  }
+});
+</script>
+</body>
+</html>
