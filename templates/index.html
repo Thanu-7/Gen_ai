@@ -4,201 +4,367 @@
   <meta charset="UTF-8">
   <title>MindMate 🤖</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Modern rounded sans-serif -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
+    /* Base styles removed for brevity... (reset + base) */
     :root {
-      --bg: #1e1e1e;
-      --bot-bg: #2a2a2a;
-      --user-bg: #2a2a2a;
-      --border: #2a2a2a;
-      --text: #f3f4f6;
       --radius: 12px;
-      --input-bg: #2a2a2a;
-      --header-bg: #2a2a2a;
-      --accent: #00adb5;
-      --danger: #ff4e4e;
+      --transition: 220ms ease;
+      --shadow: 0 8px 30px rgba(2,6,23,0.35);
+      --glass: rgba(255,255,255,0.04);
+      --glass-strong: rgba(255,255,255,0.06);
     }
-    body {
-      margin: 0;
-      font-family: "Inter", system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+    /* Theme tokens — will be swapped via [data-theme] attribute on body */
+    body[data-theme="dark"] {
+      --bg: #000000;
+      --panel: #081018;
+      --accent: #66e0ff;
+      --muted: #bcdfff;
+      --text: #e6f7ff;
+      --alt-text: #cbeefc;
+      --control-bg: rgba(255,255,255,0.04);
+      --switch-bg: rgba(255,255,255,0.06);
+      --knob-color: var(--panel);
+      /* stronger, more visible borders for messages */
+      --message-border: rgba(255,255,255,0.10);
+      --message-border-accent: rgba(102,224,255,0.14);
     }
-    .header {
-      padding: 16px 24px;
-      background: var(--header-bg);
-      border-bottom: 1px solid var(--border);
-      font-size: 18px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    body[data-theme="light"] {
+      --bg: #f2f4f3;
+      --panel: #ffffff;
+      --accent: #2ecc71;
+      --muted: #125d2a;
+      --text: #0b2a18;
+      --alt-text: #084d2f;
+      --control-bg: rgba(0,0,0,0.04);
+      --switch-bg: rgba(0,0,0,0.06);
+      --knob-color: var(--panel);
+      --message-border: rgba(0,0,0,0.12);
+      --message-border-accent: rgba(46,204,113,0.12);
     }
-    .header .icon { font-size: 22px; }
-    .container {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 32px;
-      padding: 24px;
-      flex: 1;
-      justify-content: center;
-      align-items: flex-start;
+
+    /* Base layout */
+    html, body { height: 100%; margin: 0; font-family: "Poppins", system-ui, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing:antialiased; }
+    .app {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      grid-template-rows: 64px 1fr;
+      gap: 24px;
+      height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
     }
-    .panel {
-      background: var(--bot-bg);
-      border-radius: var(--radius);
-      padding: 24px;
-      min-width: 320px;
-      max-width: 400px;
-      flex: 1 1 340px;
-      box-shadow: 0 2px 12px #0002;
-      margin-bottom: 24px;
-    }
-    .panel h2 {
-      margin-top: 0;
-      font-size: 1.2rem;
-      color: var(--accent);
-    }
-    .panel label { font-size: 15px; }
-    .panel input, .panel textarea, .panel select {
-      width: 100%;
-      margin: 8px 0 16px 0;
-      padding: 10px 14px;
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--text);
-      font-size: 15px;
-      resize: vertical;
-    }
-    .panel button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: var(--radius);
+    /* Top nav spans both columns */
+    .topbar {
+      grid-column: 1 / -1;
+      height: 64px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
       padding: 10px 18px;
-      font-size: 15px;
-      cursor: pointer;
-      margin-right: 8px;
-      margin-bottom: 8px;
-      transition: background 0.2s;
+      border-radius: calc(var(--radius));
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      box-shadow: var(--shadow);
+      align-self: start;
+      backdrop-filter: blur(6px);
     }
-    .panel button:hover { background: #008b91; }
-    .danger { color: var(--danger); }
-    .suggestion-list { margin: 0 0 10px 0; padding: 0 0 0 18px; }
-    .suggestion-list li { margin-bottom: 4px; }
-    .quote { font-style: italic; color: #b5eaea; margin-bottom: 8px; }
-    .escalate-box {
-      background: #2a2a2a;
-      border: 1px solid var(--danger);
-      color: var(--danger);
-      padding: 12px;
-      border-radius: var(--radius);
-      margin-bottom: 12px;
-      font-weight: 600;
+    .brand { display:flex; gap:12px; align-items:center; }
+    .brand .logo {
+      width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+      font-size:20px; font-weight:700; background:linear-gradient(135deg, var(--accent), rgba(255,255,255,0.06));
+      color: var(--bg);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.25);
     }
-    /* Chat styles */
-    #chat { max-height: 340px; overflow-y: auto; padding: 8px 0; display: flex; flex-direction: column; }
+    .brand .title { font-weight:700; font-size:18px; letter-spacing:0.2px; color:var(--text); }
+    .top-actions { display:flex; gap:10px; align-items:center; }
+
+    /* Buttons */
+    .btn {
+      padding:8px 12px; border-radius: 10px; border: none; cursor: pointer; font-weight:600;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      background: var(--control-bg); color: var(--text);
+    }
+    .btn.primary {
+      background: var(--accent); /* flat single color, removed gradient */
+      color: var(--bg);
+      border: 1px solid transparent;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+    }
+    .btn.primary:hover {
+      filter: brightness(0.95);
+      transform: translateY(-1px);
+    }
+    .btn:active { transform: translateY(1px); }
+    .toggle {
+      display:flex; align-items:center; gap:8px; padding:6px; border-radius:999px; background:var(--control-bg);
+    }
+    .switch {
+      width:44px; height:24px; border-radius:999px; display:inline-flex; align-items:center; padding:3px;
+      background: var(--switch-bg);
+      border: 1px solid rgba(0,0,0,0.08);
+      box-sizing: border-box;
+    }
+    .knob {
+      width:18px; height:18px; background: var(--accent); border-radius:50%; transition: transform 220ms var(--transition);
+      box-shadow: 0 6px 14px rgba(2,6,23,0.18);
+      transform: translateX(0);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      align-self: stretch;
+    }
+    .nav-item {
+      display:flex; align-items:center; gap:12px; padding:10px; border-radius:10px; cursor:pointer;
+      color: var(--alt-text); font-weight:600;
+      transition: background 180ms, transform 120ms;
+    }
+    .nav-item .icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; background:transparent; color:var(--accent);}
+    .nav-item:hover { background: rgba(0,0,0,0.04); transform: translateY(-2px); }
+    .nav-item.active {
+      background: linear-gradient(90deg, rgba(0,0,0,0.06), transparent);
+      box-shadow: inset 0 0 0 2px rgba(0,0,0,0.02);
+      color: var(--text);
+    }
+    .nav-item.active .icon { background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent); color:var(--accent); }
+
+    /* Main content area */
+    .main {
+      background: transparent;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .card {
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      min-height: 160px;
+    }
+
+    /* Page region and transitions */
+    .pages { position:relative; flex:1; overflow:hidden; }
+    .page {
+      position:absolute; inset:0; padding: 12px; transition: transform 320ms cubic-bezier(.2,.9,.2,1), opacity 260ms ease;
+      will-change: transform, opacity; display:flex; flex-direction:column; gap:12px;
+      opacity:0; transform: translateY(8px); pointer-events:none;
+    }
+    .page.active { opacity:1; transform:none; pointer-events:auto; }
+
+    /* Chat styles (clean bubbles) */
+    #chat { max-height: 60vh; overflow-y: auto; display:flex; flex-direction:column; gap:8px; padding:8px; }
     .message {
-      max-width: 70%;
+      max-width: 72%;
       padding: 12px 16px;
-      margin: 8px 0;
-      border-radius: var(--radius);
-      line-height: 1.5;
+      border-radius: 14px;
+      line-height: 1.4;
       font-size: 15px;
-      animation: fadeIn 0.25s ease-in-out;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+      border: 1.5px solid var(--message-border); /* stronger visible border */
+      background: var(--panel);
     }
-    .bot { background: var(--bot-bg); border: 1px solid var(--border); align-self: flex-start; }
-    .user { background: var(--user-bg); color: white; align-self: flex-end; }
-    .typing { font-style: italic; color: #9ca3af; font-size: 14px; margin: 8px 0; align-self: flex-start; }
-    .chat-input {
-      display: flex; padding: 12px 0 0 0;
+    .bot {
+      align-self:flex-start;
+      background: var(--panel);
+      color:var(--text);
+      border-color: var(--message-border); /* neutral border for bot */
     }
-    #userInput {
-      flex: 1; padding: 12px 16px; border-radius: var(--radius); border: 1px solid var(--border);
-      outline: none; font-size: 15px; background: var(--bg); color: var(--text);
+    .user {
+      align-self:flex-end;
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--message-border-accent); /* accent border for user */
+      box-shadow: 0 8px 24px rgba(2,6,23,0.10);
     }
-    #userInput:focus { border-color: #2a2a2a; }
-    button.send, button.voice {
-      margin-left: 10px; padding: 12px 20px; border-radius: var(--radius);
-      background: #1d1d1d; color: white; border: none; cursor: pointer; font-size: 15px;
+    .typing { font-style: italic; color: var(--muted); font-size: 14px; align-self:flex-start; }
+
+    .chat-input { display:flex; gap:10px; align-items:center; margin-top:auto; }
+    .chat-input input[type="text"]{
+      flex:1;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1.5px solid var(--message-border); /* visible by default */
+      background:var(--panel);
+      color:var(--text);
+      box-shadow: 0 6px 14px rgba(2,6,23,0.06);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
     }
-    button.send:hover, button.voice:hover { background: #000000; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
-    #chat::-webkit-scrollbar { width: 6px; }
-    #chat::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 6px; }
+    .chat-input input[type="text"]:focus{
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    }
+
+    /* Apply same visible border style to other form controls by default */
+    textarea, select, input[type="email"], input[type="password"] {
+      width:100%;
+      padding:10px 12px;
+      border-radius:10px;
+      border:1.5px solid var(--message-border); /* visible by default */
+      background: var(--panel);
+      color:var(--text);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    textarea:focus, select:focus, input[type="email"]:focus, input[type="password"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+    /* Journal / suggestions / login styling kept minimal */
+    .suggestion-list { margin-top:10px; padding-left:18px; color:var(--text); }
+    .escalate-box { margin-top:8px; padding:12px; border-radius:10px; border:1px solid var(--accent); color:var(--accent); background:transparent; font-weight:600; }
+
     /* Responsive */
     @media (max-width: 900px) {
-      .container { flex-direction: column; align-items: stretch; }
-      .panel { max-width: 100%; }
+      .app { grid-template-columns: 1fr; grid-template-rows: 64px auto 1fr; padding: 14px; gap:12px; }
+      .topbar { position: sticky; top: 8px; z-index: 3; }
+      .sidebar { flex-direction:row; overflow:auto; padding:10px; border-radius:12px; }
+      .nav-item { white-space:nowrap; flex:0 0 auto; }
     }
   </style>
 </head>
-<body>
-  <div class="header">
-    <span class="icon">🤖</span>
-    <span>MindMate</span>
+<body data-theme="dark">
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">MM</div>
+        <div>
+          <div class="title">MindMate</div>
+          <div style="font-size:12px;color:var(--alt-text);">Your mental wellness assistant</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="toggle" title="Toggle theme">
+          <div style="font-size:13px;color:var(--alt-text);">Dark</div>
+          <div class="switch" id="themeSwitch" role="button" aria-pressed="false" tabindex="0">
+            <div class="knob" id="themeKnob"></div>
+          </div>
+          <div style="font-size:13px;color:var(--alt-text);">Light</div>
+        </div>
+        <button class="btn" id="signupBtn" onclick="showPage('login')">Login / Sign Up</button>
+      </div>
+    </div>
+
+    <aside class="sidebar card" aria-label="Main navigation">
+      <div class="nav-item active" data-page="chat" onclick="navigate(event)">
+        <div class="icon">💬</div>
+        <div>Chat Bot</div>
+      </div>
+      <div class="nav-item" data-page="journal" onclick="navigate(event)">
+        <div class="icon">📓</div>
+        <div>Journal</div>
+      </div>
+      <div class="nav-item" data-page="suggestions" onclick="navigate(event)">
+        <div class="icon">✨</div>
+        <div>Smart Suggestions</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="font-size:12px;color:var(--alt-text);">v1.0 • Minimal • Secure</div>
+    </aside>
+
+    <main class="main">
+      <div class="pages">
+        <!-- Chat Page -->
+        <section id="page-chat" class="page active">
+          <div class="card" style="display:flex;flex-direction:column;gap:12px;height:100%;">
+            <h3 style="margin:0;color:var(--accent)">Gemini Chatbot</h3>
+            <div id="chat" style="flex:1; overflow:auto;"></div>
+            <div class="chat-input">
+              <input type="text" id="userInput" placeholder="Message..." autocomplete="off">
+              <div class="chat-actions">
+                <button class="btn primary" onclick="sendMessage()">Send</button>
+                <button class="btn" id="voiceBtn">🎤</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Journal Page -->
+        <section id="page-journal" class="page" aria-hidden="true">
+          <div class="card" style="display:flex;flex-direction:column;gap:12px;height:100%;">
+            <h3 style="margin:0;color:var(--accent)">Daily Journal</h3>
+            <label for="journalText">Write your thoughts:</label>
+            <textarea id="journalText" rows="6" placeholder="How are you feeling today?"></textarea>
+            <div style="display:flex;gap:8px;">
+              <button class="btn primary" onclick="analyzeJournal()">Analyze Mood</button>
+              <button class="btn" onclick="saveJournal()">Save Entry</button>
+            </div>
+            <div id="journalMood" style="margin-top:6px;color:var(--text)"></div>
+            <div id="escalateBox" class="escalate-box" style="display:none;">
+              Your mood seems critically low. <br><b>Consider reaching out to a psychologist or helpline.</b>
+            </div>
+
+            <!-- Chat History section -->
+            <hr style="opacity:0.06;margin:10px 0;">
+            <h4 style="margin:0;color:var(--alt-text);font-size:14px;">Chat History</h4>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <button class="btn" onclick="loadChatHistory()">Refresh</button>
+              <div style="font-size:13px;color:var(--alt-text);">View recent conversations</div>
+            </div>
+            <div id="chatHistoryList" style="margin-top:10px; display:flex;flex-direction:column;gap:8px; max-height:28vh; overflow:auto;">
+              <!-- Rendered conversation items -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Suggestions Page -->
+        <section id="page-suggestions" class="page" aria-hidden="true">
+          <div class="card" style="display:flex;flex-direction:column;gap:12px;height:100%;">
+            <h3 style="margin:0;color:var(--accent)">Personalized Suggestions</h3>
+            <label for="moodSelect">Select mood:</label>
+            <select id="moodSelect">
+              <option value="happy">Happy</option>
+              <option value="sad">Sad</option>
+              <option value="stressed">Stressed</option>
+              <option value="depressed">Depressed</option>
+            </select>
+            <div style="display:flex;gap:8px;">
+              <button class="btn primary" onclick="getSuggestions()">Get Suggestions</button>
+            </div>
+            <div class="quote" id="quote" style="color:var(--alt-text);"></div>
+            <ul class="suggestion-list" id="suggestions" style="color:var(--text)"></ul>
+          </div>
+        </section>
+
+        <!-- Login Page -->
+        <section id="page-login" class="page" aria-hidden="true">
+          <div class="card" style="display:flex;flex-direction:column;gap:12px;max-width:520px;">
+            <h3 style="margin:0;color:var(--accent)">Login / Register</h3>
+            <div id="loginForm">
+              <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+              <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+              <div style="display:flex;gap:8px;">
+                <button class="btn primary" onclick="loginWithEmailUI()">Login</button>
+                <button class="btn" onclick="registerWithEmailUI()">Register</button>
+              </div>
+              <div id="loginError" style="color:var(--accent);font-weight:600;"></div>
+            </div>
+            <hr>
+            <div style="display:flex;gap:8px;">
+              <button class="btn" onclick="loginWithGoogle()">Sign in with Google</button>
+              <button class="btn" onclick="logout()" id="logoutBtn" style="display:none;">Logout</button>
+              <span id="userEmail" style="margin-left:auto;color:var(--alt-text)"></span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
   </div>
-  <div class="container">
-    <!-- Chatbot Panel -->
-    <div class="panel" style="max-width:420px;">
-      <h2>Gemini Chatbot</h2>
-      <div id="chat"></div>
-      <div class="chat-input">
-        <input type="text" id="userInput" placeholder="Message..." autofocus>
-        <button class="send" onclick="sendMessage()">Send</button>
-        <button class="voice" id="voiceBtn">🎤</button>
-      </div>
-    </div>
-    <!-- Journal Panel -->
-    <div class="panel">
-      <h2>Daily Journal</h2>
-      <label for="journalText">Write your thoughts:</label>
-      <textarea id="journalText" rows="4" placeholder="How are you feeling today?"></textarea>
-      <button onclick="analyzeJournal()">Analyze Mood</button>
-      <button onclick="saveJournal()">Save Entry</button>
-      <div id="journalMood"></div>
-      <div id="escalateBox" class="escalate-box" style="display:none;">
-        Your mood seems critically low. <br>
-        <b>Consider reaching out to a psychologist or helpline.</b>
-      </div>
-    </div>
-    <!-- Suggestions Panel -->
-    <div class="panel">
-      <h2>Personalized Suggestions</h2>
-      <label for="moodSelect">Select mood:</label>
-      <select id="moodSelect">
-        <option value="happy">Happy</option>
-        <option value="sad">Sad</option>
-        <option value="stressed">Stressed</option>
-        <option value="depressed">Depressed</option>
-      </select>
-      <button onclick="getSuggestions()">Get Suggestions</button>
-      <div class="quote" id="quote"></div>
-      <ul class="suggestion-list" id="suggestions"></ul>
-    </div>
-    <!-- Login Panel -->
-    <div class="panel">
-      <h2>Login</h2>
-      <div id="loginForm">
-        <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
-        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
-        <button onclick="loginWithEmailUI()">Login</button>
-        <button onclick="registerWithEmailUI()">Register</button>
-        <div id="loginError" class="danger"></div>
-      </div>
-      <hr>
-      <button onclick="loginWithGoogle()">Sign in with Google</button>
-      <button onclick="logout()" style="display:none;" id="logoutBtn">Logout</button>
-      <span id="userEmail"></span>
-    </div>
-  </div>
+
   <!-- Firebase App (the core Firebase SDK) -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<!-- Firebase Auth SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
 <script>
   // Your web app's Firebase configuration
   const firebaseConfig = {
@@ -212,14 +378,67 @@
   };
   firebase.initializeApp(firebaseConfig);
 </script>
+
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-  // User ID for session
+  // preserve user id
   let user_id = localStorage.getItem("user_id");
   if (!user_id) {
     user_id = crypto.randomUUID();
     localStorage.setItem("user_id", user_id);
   }
+
+  // Theme handling
+  const body = document.body;
+  const switchEl = document.getElementById("themeSwitch");
+  const knob = document.getElementById("themeKnob");
+  function applyTheme(theme) {
+    body.setAttribute("data-theme", theme);
+    if (theme === "light") {
+      knob.style.transform = "translateX(20px)";
+      switchEl.setAttribute("aria-pressed", "true");
+    } else {
+      knob.style.transform = "translateX(0)";
+      switchEl.setAttribute("aria-pressed", "false");
+    }
+    localStorage.setItem("mm_theme", theme);
+  }
+  // init from storage or prefer dark
+  const stored = localStorage.getItem("mm_theme") || "dark";
+  applyTheme(stored);
+
+  switchEl.addEventListener("click", () => applyTheme(body.getAttribute("data-theme") === "dark" ? "light" : "dark"));
+  switchEl.addEventListener("keydown", (e)=> { if(e.key === "Enter") switchEl.click(); });
+
+  // Navigation
+  function setActiveNav(page) {
+    document.querySelectorAll(".nav-item").forEach(n => {
+      n.classList.toggle("active", n.dataset.page === page);
+    });
+  }
+  window.navigate = function(e) {
+    const el = e.currentTarget || e.target;
+    const page = el.dataset.page;
+    showPage(page);
+  };
+  window.showPage = function(page) {
+    // map simple names to page ids
+    const map = { chat: "page-chat", journal: "page-journal", suggestions: "page-suggestions", login: "page-login" };
+    Object.values(map).forEach(pid => {
+      const node = document.getElementById(pid);
+      if (!node) return;
+      const should = pid === map[page];
+      node.classList.toggle("active", should);
+      node.setAttribute("aria-hidden", !should);
+    });
+    // activate sidebar
+    setActiveNav(page === 'login' ? 'chat' : page); // keep sidebar active on nearest page when showing login
+
+    // If user views journal, refresh chat history automatically
+    if (page === 'journal') {
+      loadChatHistory();
+    }
+  };
 
   // ------------- Chatbot -------------
   const chat = document.getElementById("chat");
@@ -227,7 +446,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const input = document.getElementById("userInput");
     const message = input.value.trim();
     if(!message) return;
-    chat.innerHTML += `<div class="message user">${message}</div>`;
+    chat.innerHTML += `<div class="message user">${escapeHtml(message)}</div>`;
     input.value = '';
     const typingIndicator = document.createElement("div");
     typingIndicator.className = "typing";
@@ -246,12 +465,12 @@ document.addEventListener("DOMContentLoaded", function() {
       botMessage.className = "message bot";
       chat.appendChild(botMessage);
       let i = 0;
-      const text = data.reply;
+      const text = data.reply || "Sorry, no reply.";
       const typing = setInterval(() => {
         botMessage.innerText = text.slice(0, i++);
         chat.scrollTop = chat.scrollHeight;
         if(i > text.length) clearInterval(typing);
-      }, 15);
+      }, 12);
     } catch (err) {
       typingIndicator.remove();
       chat.innerHTML += `<div class="message bot">⚠️ Error connecting to server.</div>`;
@@ -260,7 +479,8 @@ document.addEventListener("DOMContentLoaded", function() {
   document.getElementById("userInput").addEventListener("keypress", e => {
     if(e.key === "Enter") sendMessage();
   });
-  // Voice input for chatbot
+
+  // Voice input (reused)
   const voiceBtn = document.getElementById("voiceBtn");
   voiceBtn.addEventListener("click", () => {
     if (!('webkitSpeechRecognition' in window)) {
@@ -307,45 +527,66 @@ document.addEventListener("DOMContentLoaded", function() {
     if (!text) return;
     document.getElementById("journalMood").innerText = "Analyzing...";
     document.getElementById("escalateBox").style.display = "none";
-    const res = await fetch("/analyze_journal", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({journal: text})
-    });
-    const data = await res.json();
-    document.getElementById("journalMood").innerHTML = `Mood: <b>${data.mood}</b> (Score: ${data.score})`;
-    if (data.escalate) {
-      document.getElementById("escalateBox").style.display = "block";
+    try {
+      const res = await fetch("/analyze_journal", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({journal: text})
+      });
+      const data = await res.json();
+      document.getElementById("journalMood").innerHTML = `Mood: <b>${data.mood}</b> (Score: ${data.score})`;
+      if (data.escalate) {
+        document.getElementById("escalateBox").style.display = "block";
+      }
+    } catch (err) {
+      document.getElementById("journalMood").innerText = "Analysis failed.";
     }
   }
   window.saveJournal = async function() {
     const text = document.getElementById("journalText").value.trim();
     if (!text) return;
-    const res = await fetch("/add_journal", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({user_id, journal: text})
-    });
-    const data = await res.json();
-    alert(data.message || "Saved!");
+    try {
+      const res = await fetch("/add_journal", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({user_id, journal: text})
+      });
+      const data = await res.json();
+      alert(data.message || "Saved!");
+    } catch (err) {
+      alert("Save failed.");
+    }
   }
 
   // ------------- Suggestions -------------
   window.getSuggestions = async function() {
-    const mood = document.getElementById("moodSelect").value;
-    document.getElementById("suggestions").innerHTML = "";
-    document.getElementById("quote").innerText = "Loading...";
-    const res = await fetch("/recommend", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({mood})
-    });
-    const data = await res.json();
-    document.getElementById("quote").innerText = data.quote ? `“${data.quote}”` : "";
-    document.getElementById("suggestions").innerHTML = data.suggestions.map(s => `<li>${s}</li>`).join("");
+    const suggestionsEl = document.getElementById("suggestions");
+    const quoteEl = document.getElementById("quote");
+    suggestionsEl.innerHTML = "";
+    quoteEl.innerText = "Loading...";
+    try {
+      const res = await fetch("/recommend_from_journals", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ user_id })
+      });
+      const data = await res.json();
+      if (data.quote) quoteEl.innerText = `“${data.quote}”`;
+      else quoteEl.innerText = "";
+
+      const list = data.suggestions || [];
+      if (list.length === 0) {
+        suggestionsEl.innerHTML = "<li>No personalized suggestions available. Try writing more journals.</li>";
+      } else {
+        suggestionsEl.innerHTML = list.map(s => `<li>${escapeHtml(s)}</li>`).join("");
+      }
+    } catch (err) {
+      quoteEl.innerText = "";
+      suggestionsEl.innerHTML = `<li style="color:var(--accent)">Failed to load suggestions.</li>`;
+    }
   }
 
-  // ------------- Login -------------
+  // ------------- Login (Firebase) -------------
   window.loginWithGoogle = async function() {
     const provider = new firebase.auth.GoogleAuthProvider();
     try {
@@ -360,14 +601,19 @@ document.addEventListener("DOMContentLoaded", function() {
       alert("Login failed: " + err.message);
     }
   }
-  function logout() {
-    firebase.auth().signOut();
-    localStorage.removeItem("idToken");
-    document.getElementById("userEmail").innerText = "";
-    document.getElementById("logoutBtn").style.display = "none";
-    alert("Signed out.");
+  window.logout = async function() {
+    try {
+      await firebase.auth().signOut();
+      localStorage.removeItem("idToken");
+      document.getElementById("userEmail").innerText = "";
+      const lb = document.getElementById("logoutBtn");
+      if (lb) lb.style.display = "none";
+      alert("Signed out.");
+    } catch (err) {
+      console.error("Logout failed:", err);
+      alert("Sign out failed.");
+    }
   }
-  // Optional: Show user info if already signed in
   firebase.auth().onAuthStateChanged(async function(user) {
     if (user) {
       document.getElementById("userEmail").innerText = user.email;
@@ -422,6 +668,135 @@ document.addEventListener("DOMContentLoaded", function() {
       document.getElementById("loginError").innerText = err.message;
     }
   }
+
+  // Small helpers
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // Expose sendMessage to window scope if needed
+  window.sendMessage = sendMessage;
+
+  // New: Load and render chat history for the current user
+  window.loadChatHistory = async function() {
+    const list = document.getElementById("chatHistoryList");
+    list.innerHTML = '<div style="color:var(--alt-text)">Loading...</div>';
+    try {
+      const res = await fetch(`/get_chat_history?user_id=${encodeURIComponent(user_id)}`);
+      const data = await res.json();
+      const history = data.history || [];
+      renderChatHistory(history);
+    } catch (err) {
+      list.innerHTML = '<div style="color:var(--accent)">Failed to load chat history.</div>';
+    }
+  };
+
+  function renderChatHistory(history) {
+    const container = document.getElementById("chatHistoryList");
+    container.innerHTML = '';
+    if (!history || history.length === 0) {
+      container.innerHTML = '<div style="color:var(--alt-text)">No chat history available.</div>';
+      return;
+    }
+    // Convert the sequential message objects into conversation "exchanges" for clearer display
+    const exchanges = [];
+    let current = {};
+    history.forEach(msg => {
+      if (msg.user !== undefined) {
+        // start a new exchange with user's text
+        current = { user: msg.user, bot: null };
+        exchanges.push(current);
+      } else if (msg.bot !== undefined) {
+        // attach bot response to the most recent exchange (if any)
+        if (!current || current.bot !== null) {
+          // create a fallback entry if bot appears without user
+          exchanges.push({ user: null, bot: msg.bot });
+          current = exchanges[exchanges.length - 1];
+        } else {
+          current.bot = msg.bot;
+        }
+      }
+    });
+
+    exchanges.slice().reverse().forEach((ex, idx) => {
+      // show most recent first
+      const item = document.createElement("div");
+      item.style.display = "flex";
+      item.style.flexDirection = "column";
+      item.style.gap = "6px";
+      item.style.padding = "10px";
+      item.style.borderRadius = "10px";
+      item.style.background = "var(--panel)";
+      item.style.border = "1px solid var(--message-border)";
+      item.style.boxShadow = "0 6px 14px rgba(2,6,23,0.04)";
+
+      const u = document.createElement("div");
+      u.style.fontSize = "13px";
+      u.style.color = "var(--alt-text)";
+      u.innerText = ex.user ? `You: ${ex.user}` : "(No user message)";
+
+      const b = document.createElement("div");
+      b.style.fontSize = "13px";
+      b.style.color = "var(--text)";
+      b.innerText = ex.bot ? `Bot: ${ex.bot}` : "(No bot response)";
+
+      const actions = document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.gap = "8px";
+
+      const openBtn = document.createElement("button");
+      openBtn.className = "btn";
+      openBtn.innerText = "Open in Chat";
+      openBtn.onclick = () => {
+        // populate chat area with full conversation and switch to chat page
+        openConversation(history);
+      };
+
+      // Add a copy button to copy exchange text
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "btn";
+      copyBtn.innerText = "Copy";
+      copyBtn.onclick = () => {
+        const text = `${ex.user ? "You: " + ex.user + "\n" : ""}${ex.bot ? "Bot: " + ex.bot : ""}`;
+        navigator.clipboard?.writeText(text);
+        copyBtn.innerText = "Copied";
+        setTimeout(()=> copyBtn.innerText = "Copy", 1200);
+      };
+
+      actions.appendChild(openBtn);
+      actions.appendChild(copyBtn);
+
+      item.appendChild(u);
+      item.appendChild(b);
+      item.appendChild(actions);
+
+      container.appendChild(item);
+    });
+  }
+
+  // Open full conversation into the chat view (rebuild chat DOM from history then switch)
+  function openConversation(history) {
+    const chatDiv = document.getElementById("chat");
+    chatDiv.innerHTML = '';
+    history.forEach(msg => {
+      if (msg.user !== undefined) {
+        const d = document.createElement("div");
+        d.className = "message user";
+        d.innerText = msg.user;
+        chatDiv.appendChild(d);
+      }
+      if (msg.bot !== undefined) {
+        const d = document.createElement("div");
+        d.className = "message bot";
+        d.innerText = msg.bot;
+        chatDiv.appendChild(d);
+      }
+    });
+    // scroll to bottom and show chat page
+    chatDiv.scrollTop = chatDiv.scrollHeight;
+    showPage('chat');
+  }
+
+  // initial page
+  showPage('chat');
 });
 </script>
 </body>

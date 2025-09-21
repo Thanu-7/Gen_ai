@@ -7,6 +7,8 @@ import requests
 from werkzeug.utils import secure_filename
 import os
 from dotenv import load_dotenv
+import json
+import statistics
 
 load_dotenv()  # Load environment variables from .env
 
@@ -104,9 +106,11 @@ def add_journal():
     if not user_id or not journal_text:
         return jsonify({"error": "Missing data"}), 400
 
+    # store a timestamp so we can analyze trends over time
     db.collection('journals').add({
         'user_id': user_id,
-        'journal': journal_text
+        'journal': journal_text,
+        'timestamp': firestore.SERVER_TIMESTAMP
     })
     return jsonify({"message": "Journal saved!"}), 200
 
@@ -116,79 +120,253 @@ def get_journal():
     if not user_id:
         return jsonify({"error": "Missing user_id"}), 400
 
-    entries = db.collection('journals').where('user_id', '==', user_id).stream()
-    journals = [{'id': e.id, **e.to_dict()} for e in entries]
-
+    # fetch and order by timestamp if available (descending)
+    entries_query = db.collection('journals').where('user_id', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING)
+    entries = entries_query.stream()
+    journals = []
+    for e in entries:
+        d = e.to_dict()
+        journals.append({'id': e.id, 'journal': d.get('journal'), 'timestamp': d.get('timestamp')})
     return jsonify(journals), 200
 
-@app.route('/analyze_journal', methods=['POST'])
-def analyze_journal():
-    data = request.json
-    journal_text = data.get('journal')
+# New endpoint: analyze mood trends from journals and ask Gemini for suggestions
+@app.route('/recommend_from_journals', methods=['POST'])
+def recommend_from_journals():
+    data = request.json or {}
+    # Ignore any manual mood sent by frontend — derive mood from journals only
+    data.pop('mood', None)
 
-    if not journal_text:
-        return jsonify({"error": "Missing journal text"}), 400
+    user_id = data.get('user_id')
+    max_entries = int(data.get('max_entries', 12))
 
-    blob = TextBlob(journal_text)
-    sentiment = blob.sentiment.polarity
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
 
-    if sentiment <= -0.5:
-        mood = "depressed"
-        escalate = True
-    elif sentiment <= -0.25:
-        mood = "sad"
-        escalate = False
-    elif sentiment >= 0.25:
+    try:
+        docs = db.collection('journals').where('user_id', '==', user_id) \
+            .order_by('timestamp', direction=firestore.Query.DESCENDING) \
+            .limit(max_entries).stream()
+        entries = [d.to_dict() for d in docs]
+    except Exception:
+        entries = []
+
+    # --- CASE 1: No journals (new user) ---
+    if not entries:
         mood = "happy"
-        escalate = False
+        prompt = (
+            "You are an empathetic assistant. The user is new and has no journal history. "
+            "Generate a JSON object ONLY with the keys: "
+            "\"suggestions\" (5 short actionable items), "
+            "\"quote\" (short motivational quote), "
+            "\"mood\" (set to 'happy'), "
+            "\"trend\" (set to 'no_data'), "
+            "\"details\" (object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; "
+            "each an array of 3 short items). "
+            "Do NOT include any extra text outside JSON."
+        )
     else:
-        mood = "stressed"
-        escalate = False
+        # --- CASE 2: Existing user ---
+        latest_text = entries[0].get('journal', '').strip()
+        try:
+            latest_score = TextBlob(latest_text).sentiment.polarity
+        except Exception:
+            latest_score = 0.0
 
-    return jsonify({"mood": mood, "score": sentiment, "escalate": escalate}), 200
+        # Map sentiment → mood
+        if latest_score <= -0.5:
+            mood = "depressed"
+        elif latest_score <= -0.25:
+            mood = "sad"
+        elif latest_score >= 0.25:
+            mood = "happy"
+        else:
+            mood = "stressed"
+
+        # Collect last few journals
+        recent_texts = []
+        for e in entries[:6]:
+            j = e.get('journal', '').strip()
+            if j:
+                recent_texts.append(j if len(j) <= 800 else j[:800] + "...")
+
+        prompt = (
+            "You are an empathetic assistant. Analyze the user's journals and provide tailored suggestions. "
+            "Generate a JSON object ONLY with the keys: "
+            "\"suggestions\" (5 short actionable items), "
+            "\"quote\" (short motivational quote), "
+            "\"mood\" (detected mood), "
+            "\"trend\" (improving/steady/worsening), "
+            "\"details\" (object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; "
+            "each an array of 3 short items). "
+            "Do NOT include any extra text outside JSON.\n\n"
+            f"Latest journal sentiment: {latest_score:.3f} → {mood}\n\n"
+            "Recent entries:\n" + "\n".join([f"- {t}" for t in recent_texts])
+        )
+
+# --- Call Gemini ---
+    reply = get_gemini_reply(prompt)
+
+    parsed = None
+    try:
+        start, end = reply.find('{'), reply.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            parsed = json.loads(reply[start:end+1])
+    except Exception:
+        parsed = None
+
+    if parsed and isinstance(parsed, dict):
+        return jsonify(parsed), 200
+
+    # --- Fallback JSON ---
+    return jsonify({
+        "mood": "happy" if not entries else mood,
+        "trend": "no_data" if not entries else "steady",
+        "suggestions": ["Take a short walk", "Write one positive thought"],
+        "quote": "Every day may not be good, but there's something good in every day.",
+        "details": {"books": [], "movies": [], "web_series": [], "activities": []}
+    }), 200
 
 # --- Personalized Suggestions ---
 @app.route('/recommend', methods=['POST'])
 def recommend():
-    data = request.json
-    mood = data.get('mood', 'neutral')
+    # Manual mood picker removed.
+    # If frontend sends user_id, derive mood from their latest journal; otherwise default to happy.
+    data = request.json or {}
+    user_id = data.get('user_id')
 
-    recommendations = {
-        "happy": [
-            "Read 'Atomic Habits'",
-            "Listen to upbeat music",
-            "Share your happiness with a friend"
-        ],
-        "sad": [
-            "Read 'The Alchemist'",
-            "Watch a TED talk",
-            "Try journaling your feelings"
-        ],
-        "stressed": [
-            "Try 5 min meditation",
-            "Read 'The Power of Now'",
-            "Take a short walk"
-        ],
-        "depressed": [
-            "Connect with psychologist",
-            "Call a helpline",
-            "Reach out to a trusted person"
-        ]
-    }
+    # Determine mood: if user_id provided, try to get latest journal mood
+    mood = "happy"  # default
+    if user_id:
+        try:
+            docs = db.collection('journals').where('user_id', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
+            latest = None
+            for d in docs:
+                latest = d.to_dict().get('journal','')
+                break
+            if latest:
+                try:
+                    sc = TextBlob(latest).sentiment.polarity
+                except Exception:
+                    sc = 0.0
+                if sc <= -0.5:
+                    mood = "depressed"
+                elif sc <= -0.25:
+                    mood = "sad"
+                elif sc >= 0.25:
+                    mood = "happy"
+                else:
+                    mood = "stressed"
+            else:
+                mood = "happy"
+        except Exception:
+            mood = "happy"
 
-    # Optionally, fetch a quote from an API
-    quote = None
+    # Build prompt for Gemini to produce suggestions each time
+    prompt = (
+        "You are an empathetic personal assistant. Based on the user's current mood, return a JSON object "
+        "exactly with the following keys: "
+        "\"suggestions\" (an array of short suggestion strings), "
+        "\"quote\" (a short motivational quote), "
+        "\"details\" (an object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; each is an array of 3 short items). "
+        "Do NOT include any extra text outside the JSON object.\n\n"
+        f"User mood: {mood}\n\n"
+        "Requirements:\n"
+        "- Provide 5 concise, varied suggestions in the top-level \"suggestions\" array (one sentence each).\n"
+        "- In \"details\" include 3 items each for \"books\", \"movies\", \"web_series\", and \"activities\" tailored to the mood.\n"
+        "- Keep items short (<= 6 words for titles, 1 short phrase for activities).\n\n"
+        "Example output:\n"
+        '{"suggestions":["..."],"quote":"...","details":{"books":["..."],"movies":["..."],"web_series":["..."],"activities":["..."]}}\n'
+    )
+
     try:
-        r = requests.get("https://api.quotable.io/random")
-        if r.ok:
-            quote = r.json().get("content")
-    except:
-        pass
+        reply = get_gemini_reply(prompt)
+    except Exception as e:
+        reply = ""
+
+    parsed = None
+    suggestions = []
+    quote = None
+    details = {"books": [], "movies": [], "web_series": [], "activities": []}
+
+    # Try to extract JSON object from reply
+    try:
+        start = reply.find('{')
+        end = reply.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            json_text = reply[start:end+1]
+            parsed = json.loads(json_text)
+    except Exception:
+        parsed = None
+
+    if parsed and isinstance(parsed, dict):
+        suggestions = parsed.get('suggestions') or []
+        quote = parsed.get('quote')
+        details = parsed.get('details') or details
+        # normalize missing categories
+        for k in ["books", "movies", "web_series", "activities"]:
+            if k not in details or not isinstance(details[k], list):
+                details[k] = []
+    else:
+        # Fallback: generate a simple set based on mood (safe defaults)
+        if mood == "happy":
+            suggestions = [
+                "Keep a short gratitude list each morning.",
+                "Share a fun moment with a friend.",
+                "Schedule a 20-minute creative session.",
+                "Try a new upbeat playlist today.",
+                "Go for a brisk 15-minute walk."
+            ]
+            details = {
+                "books": ["Atomic Habits", "The Four Agreements", "The Little Prince"],
+                "movies": ["Amélie", "Paddington 2", "The Intouchables"],
+                "web_series": ["Ted Lasso", "The Good Place", "Schitt's Creek"],
+                "activities": ["Short walk", "Dance to a song", "Call a friend"]
+            }
+            quote = quote or "Every day may hold a small joy."
+        elif mood == "sad" or mood == "stressed" or mood == "depressed":
+            suggestions = [
+                "Try a 5-minute grounding breath exercise.",
+                "Write down three small wins today.",
+                "Take a short break and step outside.",
+                "Call or message someone you trust.",
+                "Try a calming activity (drawing, stretching)."
+            ]
+            details = {
+                "books": ["The Alchemist", "Man's Search for Meaning", "Wherever You Go, There You Are"],
+                "movies": ["Inside Out", "Good Will Hunting", "Silver Linings Playbook"],
+                "web_series": ["Anne with an E", "After Life", "Normal People"],
+                "activities": ["Deep breathing", "Short walk", "Gentle stretching"]
+            }
+            quote = quote or "Small steps are real progress."
+        else:
+            # default neutral suggestions
+            suggestions = [
+                "Take 10 minutes to reflect on today's highlights.",
+                "Try a short breathing or mindfulness exercise.",
+                "Listen to a calming playlist.",
+                "Write one thing you're grateful for.",
+                "Step outside for fresh air."
+            ]
+            details = {
+                "books": ["The Power of Now", "The Art of Happiness", "Mindfulness in Plain English"],
+                "movies": ["About Time", "Finding Forrester", "The Secret Life of Walter Mitty"],
+                "web_series": ["Master of None", "Chef's Table", "Somebody Feed Phil"],
+                "activities": ["10 min meditation", "Short walk", "Read a chapter"]
+            }
+            quote = quote or "Pause, breathe, and take one step."
+
+    # Flatten suggestions from details if suggestions empty
+    if not suggestions:
+        flattened = []
+        for cat in ["books", "movies", "web_series", "activities"]:
+            flattened.extend(details.get(cat, []))
+        suggestions = flattened[:8]  # limit size
 
     return jsonify({
         "mood": mood,
-        "suggestions": recommendations.get(mood, ["Take a walk", "Listen to music"]),
-        "quote": quote
+        "suggestions": suggestions,
+        "quote": quote,
+        "details": details
     }), 200
 
 # --- Chatbot (Gemini) ---
@@ -253,6 +431,17 @@ def voice():
 
     return jsonify({"reply": reply})
 
+# --- New: Get chat history for a user (used by frontend) ---
+@app.route('/get_chat_history', methods=['GET'])
+def get_chat_history():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
+    history = chat_history.get(user_id, [])
+    # Return as list of message objects in order
+    return jsonify({"history": history}), 200
+
 # --- Firebase Token Verification ---
 from firebase_admin import auth
 
@@ -278,6 +467,77 @@ def protected():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     return jsonify({"message": f"Hello, {user['email']}!"})
+
+# --- Analyze a single journal entry (used by frontend 'Analyze Mood') ---
+@app.route('/analyze_journal', methods=['POST'])
+def analyze_journal():
+    """
+    Accepts JSON body:
+      { "journal": "...", "user_id": "..." (optional) }
+    If 'journal' provided, analyze that. Otherwise, if user_id provided, analyze the latest journal.
+    Returns: { mood: str, score: float, escalate: bool, reason: str (optional) }
+    """
+    data = request.json or {}
+    text = (data.get('journal') or '').strip()
+    user_id = data.get('user_id')
+
+    # If no explicit journal text, try to fetch latest journal for user_id
+    if not text and user_id:
+        try:
+            docs = db.collection('journals').where('user_id', '==', user_id) \
+                .order_by('timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
+            latest = None
+            for d in docs:
+                latest = d.to_dict().get('journal','')
+                break
+            text = (latest or '').strip()
+        except Exception as e:
+            print("analyze_journal: failed to fetch latest journal:", e)
+            text = ""
+
+    if not text:
+        return jsonify({"error": "Missing journal text or no journal entries for user"}), 400
+
+    # Sentiment analysis
+    try:
+        score = float(TextBlob(text).sentiment.polarity)
+    except Exception as e:
+        print("analyze_journal: TextBlob error:", e)
+        score = 0.0
+
+    # Map polarity to mood
+    if score <= -0.6:
+        mood = "depressed"
+    elif score <= -0.25:
+        mood = "sad"
+    elif score >= 0.25:
+        mood = "happy"
+    else:
+        mood = "stressed"
+
+    # Escalation heuristic: strong negative sentiment or explicit self-harm keywords
+    escalate = False
+    reason = ""
+    try:
+        lowered = text.lower()
+        harm_keywords = ["suicide", "kill myself", "end my life", "i want to die", "hurt myself", "die by suicide", "self harm", "want to die"]
+        if score <= -0.65:
+            escalate = True
+            reason = "very negative sentiment"
+        for kw in harm_keywords:
+            if kw in lowered:
+                escalate = True
+                reason = f"contains keyword: {kw}"
+                break
+    except Exception as e:
+        print("analyze_journal: escalation check error:", e)
+
+    return jsonify({
+        "mood": mood,
+        "score": round(score, 3),
+        "escalate": escalate,
+        "reason": reason
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
