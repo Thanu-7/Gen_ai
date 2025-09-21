@@ -176,7 +176,7 @@
     .bot {
       align-self:flex-start;
       background: var(--panel);
-      color:var(--text);
+      color: var(--text);
       border-color: var(--message-border); /* neutral border for bot */
     }
     .user {
@@ -303,16 +303,10 @@
             <div id="escalateBox" class="escalate-box" style="display:none;">
               Your mood seems critically low. <br><b>Consider reaching out to a psychologist or helpline.</b>
             </div>
-
-            <!-- Chat History section -->
-            <hr style="opacity:0.06;margin:10px 0;">
-            <h4 style="margin:0;color:var(--alt-text);font-size:14px;">Chat History</h4>
-            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-              <button class="btn" onclick="loadChatHistory()">Refresh</button>
-              <div style="font-size:13px;color:var(--alt-text);">View recent conversations</div>
-            </div>
-            <div id="chatHistoryList" style="margin-top:10px; display:flex;flex-direction:column;gap:8px; max-height:28vh; overflow:auto;">
-              <!-- Rendered conversation items -->
+            <hr style="opacity:0.08;margin:10px 0;">
+            <h4 style="margin:0;color:var(--alt-text);font-size:14px;">Journal History</h4>
+            <div id="journalHistory" style="display:flex;flex-direction:column;gap:8px;max-height:28vh;overflow:auto;">
+              <!-- Journal entries will be rendered here -->
             </div>
           </div>
         </section>
@@ -364,21 +358,19 @@
   <!-- Firebase App (the core Firebase SDK) -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-
 <script>
-  // Your web app's Firebase configuration
   const firebaseConfig = {
     apiKey: "AIzaSyAdZzm_m9rSB0sNOHAhe-Z57zKLSkvmDwY",
     authDomain: "mindmate-d294b.firebaseapp.com",
     projectId: "mindmate-d294b",
-    storageBucket: "mindmate-d294b.appspot.com",
+    storageBucket: "mindmate-d294b.firebasestorage.app",
     messagingSenderId: "79383956961",
     appId: "1:79383956961:web:da7dd36151520454ab96a0",
     measurementId: "G-MSSJ3LWR5N"
   };
+  // Initialize Firebase
   firebase.initializeApp(firebaseConfig);
 </script>
-
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   // preserve user id
@@ -433,11 +425,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
     // activate sidebar
     setActiveNav(page === 'login' ? 'chat' : page); // keep sidebar active on nearest page when showing login
-
-    // If user views journal, refresh chat history automatically
-    if (page === 'journal') {
-      loadChatHistory();
-    }
   };
 
   // ------------- Chatbot -------------
@@ -534,7 +521,7 @@ document.addEventListener("DOMContentLoaded", function() {
         body: JSON.stringify({journal: text})
       });
       const data = await res.json();
-      document.getElementById("journalMood").innerHTML = `Mood: <b>${data.mood}</b> (Score: ${data.score})`;
+      document.getElementById("journalMood").innerHTML = `Mood: <b>${data.mood}</b>`;
       if (data.escalate) {
         document.getElementById("escalateBox").style.display = "block";
       }
@@ -553,10 +540,40 @@ document.addEventListener("DOMContentLoaded", function() {
       });
       const data = await res.json();
       alert(data.message || "Saved!");
+      loadJournalHistory(); // Refresh history after saving
     } catch (err) {
       alert("Save failed.");
     }
   }
+
+  // Load and render journal history
+  window.loadJournalHistory = async function() {
+    const historyEl = document.getElementById("journalHistory");
+    historyEl.innerHTML = "<div style='color:var(--alt-text);font-size:13px;'>Loading...</div>";
+    try {
+      const res = await fetch(`/get_journal?user_id=${encodeURIComponent(user_id)}`);
+      const data = await res.json();
+      if (!data.journals || data.journals.length === 0) {
+        historyEl.innerHTML = "<div style='color:var(--alt-text);font-size:13px;'>No journal entries yet.</div>";
+        return;
+      }
+      historyEl.innerHTML = data.journals.map(j =>
+        `<div style="padding:10px 12px;border-radius:8px;background:var(--glass);border:1px solid var(--message-border);">
+          <div style="font-size:13px;color:var(--alt-text);margin-bottom:2px;">${j.timestamp ? new Date(j.timestamp).toLocaleString() : ''}</div>
+          <div style="font-size:15px;color:var(--text);white-space:pre-line;">${escapeHtml(j.journal)}</div>
+        </div>`
+      ).join("");
+    } catch (err) {
+      historyEl.innerHTML = "<div style='color:var(--accent);font-size:13px;'>Failed to load journal history.</div>";
+    }
+  }
+
+  // Show journal history when opening the journal page
+  const origShowPage = window.showPage;
+  window.showPage = function(page) {
+    origShowPage(page);
+    if (page === 'journal') loadJournalHistory();
+  };
 
   // ------------- Suggestions -------------
   window.getSuggestions = async function() {
@@ -574,12 +591,31 @@ document.addEventListener("DOMContentLoaded", function() {
       if (data.quote) quoteEl.innerText = `“${data.quote}”`;
       else quoteEl.innerText = "";
 
-      const list = data.suggestions || [];
-      if (list.length === 0) {
-        suggestionsEl.innerHTML = "<li>No personalized suggestions available. Try writing more journals.</li>";
-      } else {
-        suggestionsEl.innerHTML = list.map(s => `<li>${escapeHtml(s)}</li>`).join("");
+      // Main suggestions
+      let html = "";
+      if (data.suggestions && data.suggestions.length) {
+        html += `<li style="font-weight:600;color:var(--accent);margin-bottom:4px;">General Suggestions</li>`;
+        html += data.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join("");
       }
+
+      // Details: books, movies, web_series, activities
+      const details = data.details || {};
+      const detailSections = [
+        { key: "books", label: "Books" },
+        { key: "movies", label: "Movies" },
+        { key: "web_series", label: "Web Series" },
+        { key: "activities", label: "Activities" }
+      ];
+      detailSections.forEach(section => {
+        const arr = details[section.key];
+        if (arr && arr.length) {
+          html += `<li style="font-weight:600;color:var(--accent);margin-top:10px;">${section.label}</li>`;
+          html += arr.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+        }
+      });
+
+      if (!html) html = "<li>No personalized suggestions available. Try writing more journals.</li>";
+      suggestionsEl.innerHTML = html;
     } catch (err) {
       quoteEl.innerText = "";
       suggestionsEl.innerHTML = `<li style="color:var(--accent)">Failed to load suggestions.</li>`;
@@ -674,126 +710,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
   // Expose sendMessage to window scope if needed
   window.sendMessage = sendMessage;
-
-  // New: Load and render chat history for the current user
-  window.loadChatHistory = async function() {
-    const list = document.getElementById("chatHistoryList");
-    list.innerHTML = '<div style="color:var(--alt-text)">Loading...</div>';
-    try {
-      const res = await fetch(`/get_chat_history?user_id=${encodeURIComponent(user_id)}`);
-      const data = await res.json();
-      const history = data.history || [];
-      renderChatHistory(history);
-    } catch (err) {
-      list.innerHTML = '<div style="color:var(--accent)">Failed to load chat history.</div>';
-    }
-  };
-
-  function renderChatHistory(history) {
-    const container = document.getElementById("chatHistoryList");
-    container.innerHTML = '';
-    if (!history || history.length === 0) {
-      container.innerHTML = '<div style="color:var(--alt-text)">No chat history available.</div>';
-      return;
-    }
-    // Convert the sequential message objects into conversation "exchanges" for clearer display
-    const exchanges = [];
-    let current = {};
-    history.forEach(msg => {
-      if (msg.user !== undefined) {
-        // start a new exchange with user's text
-        current = { user: msg.user, bot: null };
-        exchanges.push(current);
-      } else if (msg.bot !== undefined) {
-        // attach bot response to the most recent exchange (if any)
-        if (!current || current.bot !== null) {
-          // create a fallback entry if bot appears without user
-          exchanges.push({ user: null, bot: msg.bot });
-          current = exchanges[exchanges.length - 1];
-        } else {
-          current.bot = msg.bot;
-        }
-      }
-    });
-
-    exchanges.slice().reverse().forEach((ex, idx) => {
-      // show most recent first
-      const item = document.createElement("div");
-      item.style.display = "flex";
-      item.style.flexDirection = "column";
-      item.style.gap = "6px";
-      item.style.padding = "10px";
-      item.style.borderRadius = "10px";
-      item.style.background = "var(--panel)";
-      item.style.border = "1px solid var(--message-border)";
-      item.style.boxShadow = "0 6px 14px rgba(2,6,23,0.04)";
-
-      const u = document.createElement("div");
-      u.style.fontSize = "13px";
-      u.style.color = "var(--alt-text)";
-      u.innerText = ex.user ? `You: ${ex.user}` : "(No user message)";
-
-      const b = document.createElement("div");
-      b.style.fontSize = "13px";
-      b.style.color = "var(--text)";
-      b.innerText = ex.bot ? `Bot: ${ex.bot}` : "(No bot response)";
-
-      const actions = document.createElement("div");
-      actions.style.display = "flex";
-      actions.style.gap = "8px";
-
-      const openBtn = document.createElement("button");
-      openBtn.className = "btn";
-      openBtn.innerText = "Open in Chat";
-      openBtn.onclick = () => {
-        // populate chat area with full conversation and switch to chat page
-        openConversation(history);
-      };
-
-      // Add a copy button to copy exchange text
-      const copyBtn = document.createElement("button");
-      copyBtn.className = "btn";
-      copyBtn.innerText = "Copy";
-      copyBtn.onclick = () => {
-        const text = `${ex.user ? "You: " + ex.user + "\n" : ""}${ex.bot ? "Bot: " + ex.bot : ""}`;
-        navigator.clipboard?.writeText(text);
-        copyBtn.innerText = "Copied";
-        setTimeout(()=> copyBtn.innerText = "Copy", 1200);
-      };
-
-      actions.appendChild(openBtn);
-      actions.appendChild(copyBtn);
-
-      item.appendChild(u);
-      item.appendChild(b);
-      item.appendChild(actions);
-
-      container.appendChild(item);
-    });
-  }
-
-  // Open full conversation into the chat view (rebuild chat DOM from history then switch)
-  function openConversation(history) {
-    const chatDiv = document.getElementById("chat");
-    chatDiv.innerHTML = '';
-    history.forEach(msg => {
-      if (msg.user !== undefined) {
-        const d = document.createElement("div");
-        d.className = "message user";
-        d.innerText = msg.user;
-        chatDiv.appendChild(d);
-      }
-      if (msg.bot !== undefined) {
-        const d = document.createElement("div");
-        d.className = "message bot";
-        d.innerText = msg.bot;
-        chatDiv.appendChild(d);
-      }
-    });
-    // scroll to bottom and show chat page
-    chatDiv.scrollTop = chatDiv.scrollHeight;
-    showPage('chat');
-  }
 
   // initial page
   showPage('chat');

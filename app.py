@@ -9,6 +9,7 @@ import os
 from dotenv import load_dotenv
 import json
 import statistics
+import time
 
 load_dotenv()  # Load environment variables from .env
 
@@ -32,7 +33,7 @@ GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/gemi
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
 # --- Chat history ---
-chat_history = {}  # {user_id: [{"user": "...", "bot": "..."}, ...]}
+# chat_history = {}  # {user_id: [{"user": "...", "bot": "..."}, ...]}
 
 # --- Gemini request (chatbot) ---
 def get_gemini_reply(message_text):
@@ -108,9 +109,9 @@ def add_journal():
 
     # store a timestamp so we can analyze trends over time
     db.collection('journals').add({
-        'user_id': user_id,
-        'journal': journal_text,
-        'timestamp': firestore.SERVER_TIMESTAMP
+        "user_id": user_id,
+        "journal": journal_text,
+        "timestamp": firestore.SERVER_TIMESTAMP  # or int(time.time()*1000)
     })
     return jsonify({"message": "Journal saved!"}), 200
 
@@ -120,14 +121,28 @@ def get_journal():
     if not user_id:
         return jsonify({"error": "Missing user_id"}), 400
 
-    # fetch and order by timestamp if available (descending)
-    entries_query = db.collection('journals').where('user_id', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING)
-    entries = entries_query.stream()
-    journals = []
-    for e in entries:
-        d = e.to_dict()
-        journals.append({'id': e.id, 'journal': d.get('journal'), 'timestamp': d.get('timestamp')})
-    return jsonify(journals), 200
+    try:
+        docs = db.collection('journals').where('user_id', '==', user_id) \
+            .order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
+        journals = []
+        for d in docs:
+            data = d.to_dict()
+            ts = data.get("timestamp")
+            # Handle Firestore Timestamp, float, int, or None
+            if hasattr(ts, "timestamp"):
+                ts_val = int(ts.timestamp() * 1000)
+            elif isinstance(ts, (float, int)):
+                ts_val = int(ts)
+            else:
+                ts_val = 0  # fallback if missing
+            journals.append({
+                "journal": data.get("journal", ""),
+                "timestamp": ts_val
+            })
+        return jsonify({"journals": journals}), 200
+    except Exception as e:
+        print("get_journal error:", e)
+        return jsonify({"error": "Failed to fetch journals"}), 500
 
 # New endpoint: analyze mood trends from journals and ask Gemini for suggestions
 @app.route('/recommend_from_journals', methods=['POST'])
@@ -229,21 +244,23 @@ def recommend_from_journals():
 # --- Personalized Suggestions ---
 @app.route('/recommend', methods=['POST'])
 def recommend():
-    # Manual mood picker removed.
-    # If frontend sends user_id, derive mood from their latest journal; otherwise default to happy.
     data = request.json or {}
     user_id = data.get('user_id')
 
-    # Determine mood: if user_id provided, try to get latest journal mood
-    mood = "happy"  # default
+    # Default mood
+    mood = "happy"
+    has_journals = False
+
+    # Check for latest journal to determine mood
     if user_id:
         try:
             docs = db.collection('journals').where('user_id', '==', user_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
             latest = None
             for d in docs:
-                latest = d.to_dict().get('journal','')
+                latest = d.to_dict().get('journal', '')
                 break
             if latest:
+                has_journals = True
                 try:
                     sc = TextBlob(latest).sentiment.polarity
                 except Exception:
@@ -256,27 +273,39 @@ def recommend():
                     mood = "happy"
                 else:
                     mood = "stressed"
-            else:
-                mood = "happy"
         except Exception:
-            mood = "happy"
+            pass
 
-    # Build prompt for Gemini to produce suggestions each time
-    prompt = (
-        "You are an empathetic personal assistant. Based on the user's current mood, return a JSON object "
-        "exactly with the following keys: "
-        "\"suggestions\" (an array of short suggestion strings), "
-        "\"quote\" (a short motivational quote), "
-        "\"details\" (an object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; each is an array of 3 short items). "
-        "Do NOT include any extra text outside the JSON object.\n\n"
-        f"User mood: {mood}\n\n"
-        "Requirements:\n"
-        "- Provide 5 concise, varied suggestions in the top-level \"suggestions\" array (one sentence each).\n"
-        "- In \"details\" include 3 items each for \"books\", \"movies\", \"web_series\", and \"activities\" tailored to the mood.\n"
-        "- Keep items short (<= 6 words for titles, 1 short phrase for activities).\n\n"
-        "Example output:\n"
-        '{"suggestions":["..."],"quote":"...","details":{"books":["..."],"movies":["..."],"web_series":["..."],"activities":["..."]}}\n'
-    )
+    # Build Gemini prompt
+    if not has_journals:
+        prompt = (
+            "You are an empathetic assistant. The user is new and has no journal history. "
+            "Generate a JSON object ONLY with the keys: "
+            "\"suggestions\" (5 short actionable items), "
+            "\"quote\" (short motivational quote), "
+            "\"mood\" (set to 'happy'), "
+            "\"trend\" (set to 'no_data'), "
+            "\"details\" (object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; "
+            "each an array of 3 short items, all recommendations must be powered by Gemini and suitable for a positive, uplifting mood). "
+            "Do NOT include any extra text outside JSON."
+        )
+    else:
+        prompt = (
+            "You are an empathetic personal assistant. Based on the user's current mood, return a JSON object "
+            "exactly with the following keys: "
+            "\"suggestions\" (an array of 5 short actionable suggestion strings), "
+            "\"quote\" (a short motivational quote), "
+            "\"details\" (an object with keys: \"books\", \"movies\", \"web_series\", \"activities\"; each is an array of 3 short items, all recommendations must be powered by Gemini and tailored to the user's mood). "
+            "Do NOT include any extra text outside the JSON object.\n\n"
+            f"User mood: {mood}\n\n"
+            "Requirements:\n"
+            "- Provide 5 concise, varied suggestions in the top-level \"suggestions\" array (one sentence each).\n"
+            "- In \"details\" include 3 items each for \"books\", \"movies\", \"web_series\", and \"activities\" tailored to the mood.\n"
+            "- All recommendations must be Gemini-powered and relevant.\n"
+            "- Keep items short (<= 6 words for titles, 1 short phrase for activities).\n\n"
+            "Example output:\n"
+            '{"suggestions":["..."],"quote":"...","details":{"books":["..."],"movies":["..."],"web_series":["..."],"activities":["..."]}}\n'
+        )
 
     try:
         reply = get_gemini_reply(prompt)
@@ -378,19 +407,9 @@ def chat():
     if not user_message or not user_id:
         return jsonify({"reply": "Please enter a message."})
 
-    history = chat_history.get(user_id, [])
-    history.append({"user": user_message})
-
-    conversation = ""
-    for msg in history[-10:]:
-        if "user" in msg:
-            conversation += f"User: {msg['user']}\n"
-        if "bot" in msg:
-            conversation += f"Bot: {msg['bot']}\n"
-
+    # No chat history; just send the latest message to Gemini
+    conversation = f"User: {user_message}\nBot:"
     reply = get_gemini_reply(conversation)
-    history.append({"bot": reply})
-    chat_history[user_id] = history
 
     return jsonify({"reply": reply})
 
@@ -415,32 +434,11 @@ def voice():
     if not transcript:
         return jsonify({"reply": "Sorry, I couldn't understand your voice."})
 
-    history = chat_history.get(user_id, [])
-    history.append({"user": transcript})
-
-    conversation = ""
-    for msg in history[-10:]:
-        if "user" in msg:
-            conversation += f"User: {msg['user']}\n"
-        if "bot" in msg:
-            conversation += f"Bot: {msg['bot']}\n"
-
+    # No chat history; just send the transcript to Gemini
+    conversation = f"User: {transcript}\nBot:"
     reply = get_gemini_reply(conversation)
-    history.append({"bot": reply})
-    chat_history[user_id] = history
 
     return jsonify({"reply": reply})
-
-# --- New: Get chat history for a user (used by frontend) ---
-@app.route('/get_chat_history', methods=['GET'])
-def get_chat_history():
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"error": "Missing user_id"}), 400
-
-    history = chat_history.get(user_id, [])
-    # Return as list of message objects in order
-    return jsonify({"history": history}), 200
 
 # --- Firebase Token Verification ---
 from firebase_admin import auth
