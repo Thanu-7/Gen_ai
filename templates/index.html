@@ -305,7 +305,7 @@
             </div>
             <hr style="opacity:0.08;margin:10px 0;">
             <h4 style="margin:0;color:var(--alt-text);font-size:14px;">Journal History</h4>
-            <div id="journalHistory" style="display:flex;flex-direction:column;gap:8px;max-height:28vh;overflow:auto;">
+            <div id="journalHistory" style="display:flex;flex-direction:column;gap:12px;max-height:28vh;overflow:auto;">
               <!-- Journal entries will be rendered here -->
             </div>
           </div>
@@ -540,6 +540,7 @@ document.addEventListener("DOMContentLoaded", function() {
       });
       const data = await res.json();
       alert(data.message || "Saved!");
+      document.getElementById("journalText").value = ""; // Clear textarea after save
       loadJournalHistory(); // Refresh history after saving
     } catch (err) {
       alert("Save failed.");
@@ -558,9 +559,11 @@ document.addEventListener("DOMContentLoaded", function() {
         return;
       }
       historyEl.innerHTML = data.journals.map(j =>
-        `<div style="padding:10px 12px;border-radius:8px;background:var(--glass);border:1px solid var(--message-border);">
-          <div style="font-size:13px;color:var(--alt-text);margin-bottom:2px;">${j.timestamp ? new Date(j.timestamp).toLocaleString() : ''}</div>
-          <div style="font-size:15px;color:var(--text);white-space:pre-line;">${escapeHtml(j.journal)}</div>
+        `<div style="padding:14px 16px;border-radius:12px;background:var(--glass);border:1.5px solid var(--message-border);box-shadow:0 2px 8px rgba(2,6,23,0.06);">
+          <div style="font-size:13px;color:var(--alt-text);margin-bottom:6px;">
+            ${j.timestamp ? new Date(j.timestamp).toLocaleString() : ''}
+          </div>
+          <div style="font-size:16px;color:var(--text);white-space:pre-line;">${escapeHtml(j.journal)}</div>
         </div>`
       ).join("");
     } catch (err) {
